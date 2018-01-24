@@ -1,0 +1,6 @@
+[package]
+name = "ninthers"
+version = "0.1.0"
+authors = ["Robey Pointer <robeypointer@gmail.com>"]
+
+[dependencies]
