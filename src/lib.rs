@@ -36,17 +36,15 @@ pub fn hoare_partition<A: PartialOrd>(r: &mut [A], k: usize) -> usize {
   let mut lo = 1;
   let mut hi = r.len() - 1;
 
-  while lo < hi {
+  while lo <= hi {
     while lo <= hi && r[lo] < r[0] { lo += 1 }
-    while r[hi] > r[0] { hi -= 1 }
-    if lo < hi {
-      println!("swap {:?} {:?}", lo, hi);
+    while lo <= hi && r[hi] > r[0] { hi -= 1 }
+    if lo <= hi {
       r.swap(lo, hi);
-      // lo += 1;
-      // hi -= 1;
+      lo += 1;
+      hi -= 1;
     }
   }
-  println!("stop at {:?} {:?}", lo, hi);
 
   lo -= 1;
   r.swap(lo, 0);
@@ -64,7 +62,6 @@ pub fn hoare_partition<A: PartialOrd>(r: &mut [A], k: usize) -> usize {
 pub fn adaptive_quickselect<A: PartialOrd + std::fmt::Debug>(r: &mut [A], k: usize) {
   debug_assert!(k < r.len());
   let last = r.len() - 1;
-  println!("partition start: k={:?} ({:?}) {:?}", k, r[k], r);
 
   if k == 0 {
     // minimum.
@@ -91,7 +88,6 @@ pub fn adaptive_quickselect<A: PartialOrd + std::fmt::Debug>(r: &mut [A], k: usi
   } else {
     0
   };
-  println!("partition done: k={:?} ({:?}) pivot={:?} ({:?}): {:?}", k, r[k], pivot, r[pivot], r);
 
   // FIXME how to mark this is a tail call to make sure the compiler gets it?
   if pivot == k { return }
@@ -172,9 +168,7 @@ mod tests {
       let mut r = make_random_sequence(&mut generator, 16);
       adaptive_quickselect(&mut r, 8);
       let answer = r[8];
-      println!("{:?} --part {:?}", answer, r);
       r.sort_by(|a, b| a.partial_cmp(b).unwrap());
-      println!("{:?} --sort {:?}", answer, r);
       assert_eq!(r[8], answer);
     }
   }
