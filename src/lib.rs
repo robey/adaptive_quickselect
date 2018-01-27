@@ -54,9 +54,60 @@ pub fn ninther<A: PartialOrd>(
   median_index(r, median_index(r, a, b, c), median_index(r, d, e, f), median_index(r, g, h, i))
 }
 
+/// Given a mostly-partitioned array with an unpartitioned gap on the right
+/// side of the pivot in [hi, right), move those into place, shifting the
+/// pivot right as necessary. Return the new pivot index.
+/// [ p > > > > x x x x > > ]  ->  [ < < < < p > > > > > > ]
+///   pivot     hi      right                pivot     right
+///
+fn expand_partition_right<A: PartialOrd>(r: &mut [A], pivot: usize, hi: usize, right: usize) -> usize {
+  // println!("--> expand_right pivot={:?} hi={:?} right={:?}", pivot, hi, right);
+  let mut p = pivot;
+  for i in hi..right {
+    if r[i] < r[pivot] {
+      p += 1;
+      r.swap(p, i);
+    }
+  }
+  r.swap(p, pivot);
+  p
+}
 
+/// Same as expand_partition_right, but in reverse.
+/// [ < < x x x x < < < p ]
+///       left    lo    pivot
+fn expand_partition_left<A: PartialOrd>(r: &mut [A], pivot: usize, lo: usize, left: usize) -> usize {
+  // println!("--> expand_left pivot={:?} lo={:?} left={:?}", pivot, lo, left);
+  let mut p = pivot;
+  for i in (left..lo).rev() {
+    if r[i] > r[pivot] {
+      p -= 1;
+      r.swap(p, i);
+    }
+  }
+  r.swap(p, pivot);
+  p
+}
 
+/// Given a pivot and a [lo, hi) span around it which is already partitioned,
+/// partition the rest, returning the new pivot position.
+fn expand_partition<A: PartialOrd + Debug>(r: &mut [A], lo: usize, pivot: usize, hi: usize) -> usize {
+  debug_assert!(lo <= pivot && pivot < hi && hi <= r.len());
+  // println!("--> expand {:?}", r);
+  let mut left = 0;
+  let mut right = r.len() - 1;
 
+  loop {
+    while left < lo && r[left] <= r[pivot] { left += 1 }
+    if left == lo { return expand_partition_right(r, pivot, hi, right + 1); }
+    while right >= hi && r[right] >= r[pivot] { right -= 1 }
+    if right < hi { return expand_partition_left(r, pivot, lo, left); }
+
+    r.swap(left, right);
+    left += 1;
+    right -= 1;
+  }
+}
 
 /// partition by the element at `k`, and return the new position of that element.
 pub fn partition_hoare<A: PartialOrd>(r: &mut [A], k: usize) -> usize {
@@ -82,6 +133,7 @@ pub fn partition_hoare<A: PartialOrd>(r: &mut [A], k: usize) -> usize {
 
 /// partition by finding a pivot that approximates the median.
 pub fn partition_ninthers<A: PartialOrd + Debug>(r: &mut [A]) -> usize {
+  // println!("--> Ninthers: {:?}", r);
   debug_assert!(r.len() >= 12);
   let frac = if r.len() <= 1024 {
     r.len() / 12
@@ -106,9 +158,14 @@ pub fn partition_ninthers<A: PartialOrd + Debug>(r: &mut [A]) -> usize {
     a += 3;
     b += 3;
   }
+  // println!("    now: {:?}", r);
+  // println!("    pivot={:?} lo={:?} hi={:?}", pivot, lo, hi);
 
   adaptive_quickselect(&mut r[lo..hi], pivot);
-  expand_partition(r, lo, lo + pivot, hi)
+  let x = expand_partition(r, lo, lo + pivot, hi);
+  // println!("    now {:?}", r);
+  // println!("    pivot={:?}", x);
+  x
 }
 
 
@@ -149,7 +206,7 @@ pub fn adaptive_quickselect<A: PartialOrd + Debug>(r: &mut [A], k: usize) {
   let pivot = if r.len() <= 16 {
     partition_hoare(r, k)
   } else {
-    0
+    partition_ninthers(r)
   };
 
   // FIXME how to mark this is a tail call to make sure the compiler gets it?
@@ -170,10 +227,10 @@ mod tests {
   use median3;
   use rand::{Rng, SeedableRng, StdRng};
 
-  fn make_random_sequence(generator: &mut StdRng, n: usize) -> Vec<f64> {
-    let mut rv = Vec::<f64>::with_capacity(n);
+  fn make_random_sequence(generator: &mut StdRng, n: usize) -> Vec<u16> {
+    let mut rv = Vec::<u16>::with_capacity(n);
     for _ in 0..n {
-      rv.push(generator.next_f64());
+      rv.push((generator.next_u32() & 0xffff) as u16);
     }
     rv
   }
@@ -233,6 +290,19 @@ mod tests {
       let answer = r[8];
       r.sort_by(|a, b| a.partial_cmp(b).unwrap());
       assert_eq!(r[8], answer);
+    }
+  }
+
+  #[test]
+  fn test_ninthers() {
+    let mut generator = StdRng::from_seed(&[ 1337 ]);
+
+    for _ in 0..5000 {
+      let mut r = make_random_sequence(&mut generator, 1024);
+      adaptive_quickselect(&mut r, 512);
+      let answer = r[512];
+      r.sort_by(|a, b| a.partial_cmp(b).unwrap());
+      assert_eq!(r[512], answer);
     }
   }
 }
