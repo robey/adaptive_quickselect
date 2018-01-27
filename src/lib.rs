@@ -1,5 +1,6 @@
 extern crate rand;
 
+use std::fmt::Debug;
 // #[macro_use]
 // extern crate lazy_static;
 
@@ -29,8 +30,36 @@ pub fn median3<A: PartialOrd>(r: &mut [A], a: usize, b: usize, c: usize) {
   debug_assert!((r[a] <= r[b] && r[b] <= r[c]) || (r[a] >= r[b] && r[b] >= r[c]));
 }
 
+
+
+
+/// Returns the index of the median of r[a], r[b], r[c].
+#[inline]
+pub fn median_index<A: PartialOrd>(r: &[A], a: usize, b: usize, c: usize) -> usize {
+  if r[a] > r[c] {
+    if r[b] > r[a] { a } else { if r[b] < r[c] { c } else { b } }
+  } else {
+    if r[b] > r[c] { c } else { if r[b] < r[a] { a } else { b } }
+  }
+}
+
+/// Tukey's ninther: compute the median of each triplet at a time, then the
+/// median of those medians, returning that index.
+pub fn ninther<A: PartialOrd>(
+  r: &mut [A],
+  a: usize, b: usize, c: usize,
+  d: usize, e: usize, f: usize,
+  g: usize, h: usize, i: usize
+) -> usize {
+  median_index(r, median_index(r, a, b, c), median_index(r, d, e, f), median_index(r, g, h, i))
+}
+
+
+
+
+
 /// partition by the element at `k`, and return the new position of that element.
-pub fn hoare_partition<A: PartialOrd>(r: &mut [A], k: usize) -> usize {
+pub fn partition_hoare<A: PartialOrd>(r: &mut [A], k: usize) -> usize {
   debug_assert!(k < r.len());
   r.swap(0, k);
   let mut lo = 1;
@@ -51,6 +80,40 @@ pub fn hoare_partition<A: PartialOrd>(r: &mut [A], k: usize) -> usize {
   lo
 }
 
+/// partition by finding a pivot that approximates the median.
+pub fn partition_ninthers<A: PartialOrd + Debug>(r: &mut [A]) -> usize {
+  debug_assert!(r.len() >= 12);
+  let frac = if r.len() <= 1024 {
+    r.len() / 12
+  } else {
+    if r.len() <= 128 * 1024 { r.len() / 64 } else { r.len() / 1024 }
+  };
+
+  let pivot = frac / 2;
+  let lo = r.len() / 2 - pivot;
+  let hi = lo + frac;
+
+  debug_assert!(lo >= frac * 4);
+  debug_assert!(r.len() - hi >= frac * 4);
+  debug_assert!(lo / 2 >= pivot);
+
+  let gap = (r.len() - 9 * frac) / 4;
+  let mut a = lo - 4 * frac - gap;
+  let mut b = hi + gap;
+  for i in lo..hi {
+    let k = ninther(r, a, i - frac, b, a + 1, i, b + 1, a + 2, i + frac, b + 2);
+    r.swap(k, i);
+    a += 3;
+    b += 3;
+  }
+
+  adaptive_quickselect(&mut r[lo..hi], pivot);
+  expand_partition(r, lo, lo + pivot, hi)
+}
+
+
+
+
 
 
 
@@ -59,7 +122,7 @@ pub fn hoare_partition<A: PartialOrd>(r: &mut [A], k: usize) -> usize {
 /// `r` will be modified by partially sorting (partitioning) around various
 /// pivots until the `k`th item is in the right place. no guarantee is made
 /// about any other position.
-pub fn adaptive_quickselect<A: PartialOrd + std::fmt::Debug>(r: &mut [A], k: usize) {
+pub fn adaptive_quickselect<A: PartialOrd + Debug>(r: &mut [A], k: usize) {
   debug_assert!(k < r.len());
   let last = r.len() - 1;
 
@@ -84,7 +147,7 @@ pub fn adaptive_quickselect<A: PartialOrd + std::fmt::Debug>(r: &mut [A], k: usi
   }
 
   let pivot = if r.len() <= 16 {
-    hoare_partition(r, k)
+    partition_hoare(r, k)
   } else {
     0
   };
