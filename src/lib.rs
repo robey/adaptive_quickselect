@@ -253,6 +253,13 @@ mod tests {
   }
 
   #[test]
+  fn test_simple() {
+    let mut r = [ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 21, 12, 13, 14, 15, 16, 17, 18, 19, 20, 11 ];
+    adaptive_quickselect(&mut r, 10);
+    assert_eq!(r[10], 11);
+  }
+
+  #[test]
   fn test_min() {
     let mut generator = StdRng::from_seed(&[ 1337 ]);
 
