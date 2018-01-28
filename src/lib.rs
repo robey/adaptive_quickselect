@@ -1,41 +1,11 @@
+#[cfg(test)]
 extern crate rand;
 
 use std::fmt::Debug;
-// #[macro_use]
-// extern crate lazy_static;
-
-#[inline]
-pub fn median3<A: PartialOrd>(r: &mut [A], a: usize, b: usize, c: usize) {
-  if r[b] < r[a] {
-    if r[b] < r[c] {
-      if r[c] < r[a] {
-        // b < c < a
-        r.swap(b, c);
-      } else {
-        // b < a <= c
-        r.swap(b, a);
-      }
-    }
-    // else: c <= b < a
-  } else if r[c] < r[b] {
-    if r[c] < r[a] {
-      // c < a <= b
-      r.swap(b, a);
-    } else {
-      // a <= c < b
-      r.swap(b, c);
-    }
-  }
-  // else: a <= b <= c
-  debug_assert!((r[a] <= r[b] && r[b] <= r[c]) || (r[a] >= r[b] && r[b] >= r[c]));
-}
-
-
-
 
 /// Returns the index of the median of r[a], r[b], r[c].
 #[inline]
-pub fn median_index<A: PartialOrd>(r: &[A], a: usize, b: usize, c: usize) -> usize {
+fn median_index<A: PartialOrd>(r: &[A], a: usize, b: usize, c: usize) -> usize {
   if r[a] > r[c] {
     if r[b] > r[a] { a } else { if r[b] < r[c] { c } else { b } }
   } else {
@@ -45,7 +15,8 @@ pub fn median_index<A: PartialOrd>(r: &[A], a: usize, b: usize, c: usize) -> usi
 
 /// Tukey's ninther: compute the median of each triplet at a time, then the
 /// median of those medians, returning that index.
-pub fn ninther<A: PartialOrd>(
+#[inline]
+fn ninther<A: PartialOrd>(
   r: &mut [A],
   a: usize, b: usize, c: usize,
   d: usize, e: usize, f: usize,
@@ -61,7 +32,6 @@ pub fn ninther<A: PartialOrd>(
 ///   pivot     hi      right                pivot     right
 ///
 fn expand_partition_right<A: PartialOrd>(r: &mut [A], pivot: usize, hi: usize, right: usize) -> usize {
-  // println!("--> expand_right pivot={:?} hi={:?} right={:?}", pivot, hi, right);
   let mut p = pivot;
   for i in hi..right {
     if r[i] < r[pivot] {
@@ -73,11 +43,10 @@ fn expand_partition_right<A: PartialOrd>(r: &mut [A], pivot: usize, hi: usize, r
   p
 }
 
-/// Same as expand_partition_right, but in reverse.
+/// Same as `expand_partition_right`, but in reverse.
 /// [ < < x x x x < < < p ]
 ///       left    lo    pivot
 fn expand_partition_left<A: PartialOrd>(r: &mut [A], pivot: usize, lo: usize, left: usize) -> usize {
-  // println!("--> expand_left pivot={:?} lo={:?} left={:?}", pivot, lo, left);
   let mut p = pivot;
   for i in (left..lo).rev() {
     if r[i] > r[pivot] {
@@ -93,7 +62,6 @@ fn expand_partition_left<A: PartialOrd>(r: &mut [A], pivot: usize, lo: usize, le
 /// partition the rest, returning the new pivot position.
 fn expand_partition<A: PartialOrd + Debug>(r: &mut [A], lo: usize, pivot: usize, hi: usize) -> usize {
   debug_assert!(lo <= pivot && pivot < hi && hi <= r.len());
-  // println!("--> expand {:?}", r);
   let mut left = 0;
   let mut right = r.len() - 1;
 
@@ -110,7 +78,7 @@ fn expand_partition<A: PartialOrd + Debug>(r: &mut [A], lo: usize, pivot: usize,
 }
 
 /// partition by the element at `k`, and return the new position of that element.
-pub fn partition_hoare<A: PartialOrd>(r: &mut [A], k: usize) -> usize {
+fn partition_hoare<A: PartialOrd>(r: &mut [A], k: usize) -> usize {
   debug_assert!(k < r.len());
   r.swap(0, k);
   let mut lo = 1;
@@ -131,9 +99,13 @@ pub fn partition_hoare<A: PartialOrd>(r: &mut [A], k: usize) -> usize {
   lo
 }
 
-/// partition by finding a pivot that approximates the median.
-pub fn partition_ninthers<A: PartialOrd + Debug>(r: &mut [A]) -> usize {
-  // println!("--> Ninthers: {:?}", r);
+/// Partition by finding a pivot that approximates the median. This algorithm
+/// is described in great detail in the paper (listed in the README). It
+/// samples 3 subsets of the array, from 3 equidistant ranges, and computes
+/// the median-of-median (`ninther`) of 9 items at a time, in groups of 3.
+/// These medians are moved into the center of the array, partitioned around
+/// the center, and then the partioning is expanded to cover the whole array.
+fn partition_ninthers<A: PartialOrd + Debug>(r: &mut [A]) -> usize {
   debug_assert!(r.len() >= 12);
   let frac = if r.len() <= 1024 {
     r.len() / 12
@@ -158,26 +130,71 @@ pub fn partition_ninthers<A: PartialOrd + Debug>(r: &mut [A]) -> usize {
     a += 3;
     b += 3;
   }
-  // println!("    now: {:?}", r);
-  // println!("    pivot={:?} lo={:?} hi={:?}", pivot, lo, hi);
 
   adaptive_quickselect(&mut r[lo..hi], pivot);
-  let x = expand_partition(r, lo, lo + pivot, hi);
-  // println!("    now {:?}", r);
-  // println!("    pivot={:?}", x);
-  x
+  expand_partition(r, lo, lo + pivot, hi)
 }
 
+/// Walk the entire array in chunks, collecting the minimum of each chunk
+/// into the first 2*k elements, then recursively find the median of those.
+fn partition_minima<A: PartialOrd + Debug>(r: &mut [A], k: usize) -> usize {
+  debug_assert!(r.len() >= 2);
+  debug_assert!(k > 0 && k * 4 <= r.len());
 
+  let subset = k * 2;
+  let span = (r.len() - subset) / subset;
+  let start = 0;
+  let end = start + subset;
+  debug_assert!(span > 0);
 
+  let mut chunk = subset;
+  for i in start..end {
+    let mut index = chunk;
+    for j in (chunk + 1)..(chunk + span) {
+      if r[j] < r[index] { index = j }
+    }
+    if r[index] < r[i] { r.swap(index, i) }
+    chunk += span;
+  }
+  debug_assert!(chunk <= r.len() && chunk + subset > r.len());
 
+  adaptive_quickselect(&mut r[start..end], k);
+  expand_partition(r, start, k, end)
+}
 
+/// Walk the entire array in chunks, collecting the maximum of each chunk
+/// into the last 2*k elements, then recursively find the median of those.
+fn partition_maxima<A: PartialOrd + Debug>(r: &mut [A], k: usize) -> usize {
+  debug_assert!(r.len() >= 2);
+  debug_assert!(k < r.len() && k * 4 >= r.len() * 3);
 
+  let subset = (r.len() - k) * 2;
+  let span = (r.len() - subset) / subset;
+  let start = r.len() - subset;
+  let end = r.len();
+  debug_assert!(span > 0);
 
-/// select the `k`th item from a hypothetically-sorted version of `r`.
-/// for example, the median of `r` is `adaptive_quickselect(r, r.len() / 2)`.
+  let mut chunk = start - subset * span;
+  for i in start..end {
+    let mut index = chunk;
+    for j in (chunk + 1)..(chunk + span) {
+      if r[j] > r[index] { index = j }
+    }
+    if r[index] > r[i] { r.swap(index, i) }
+    chunk += span;
+  }
+  println!("{}, {}, len={} k={}", chunk, subset, r.len(), k);
+  debug_assert!(chunk == r.len() - subset);
+
+  let pivot = r.len() - k;
+  adaptive_quickselect(&mut r[start..end], pivot);
+  expand_partition(r, start, k, end)
+}
+
+/// Select the `k`th item from a hypothetically-sorted version of `r`.
+/// For example, the median of `r` is `adaptive_quickselect(r, r.len() / 2)`.
 /// `r` will be modified by partially sorting (partitioning) around various
-/// pivots until the `k`th item is in the right place. no guarantee is made
+/// pivots until the `k`th item is in the right place. No guarantee is made
 /// about any other position.
 pub fn adaptive_quickselect<A: PartialOrd + Debug>(r: &mut [A], k: usize) {
   debug_assert!(k < r.len());
@@ -205,6 +222,10 @@ pub fn adaptive_quickselect<A: PartialOrd + Debug>(r: &mut [A], k: usize) {
 
   let pivot = if r.len() <= 16 {
     partition_hoare(r, k)
+  } else if k * 6 <= r.len() {
+    partition_minima(r, k)
+  } else if k * 6 >= r.len() * 5 {
+    partition_maxima(r, k)
   } else {
     partition_ninthers(r)
   };
@@ -220,38 +241,15 @@ pub fn adaptive_quickselect<A: PartialOrd + Debug>(r: &mut [A], k: usize) {
 }
 
 
+// ----- tests
 
 #[cfg(test)]
 mod tests {
   use adaptive_quickselect;
-  use median3;
   use rand::{Rng, SeedableRng, StdRng};
 
-  fn make_random_sequence(generator: &mut StdRng, n: usize) -> Vec<u16> {
-    let mut rv = Vec::<u16>::with_capacity(n);
-    for _ in 0..n {
-      rv.push((generator.next_u32() & 0xffff) as u16);
-    }
-    rv
-  }
-
-  #[test]
-  fn test_median3() {
-    let mut t1 = [ 3, 4, 5 ];
-    median3(&mut t1, 0, 1, 2);
-    assert_eq!(t1[1], 4);
-
-    let mut t2 = [ 5, 4, 3 ];
-    median3(&mut t2, 0, 1, 2);
-    assert_eq!(t2[1], 4);
-
-    let mut t3 = [ 5, 3, 4 ];
-    median3(&mut t3, 0, 1, 2);
-    assert_eq!(t3[1], 4);
-
-    let mut t4 = [ 4, 5, 3 ];
-    median3(&mut t4, 0, 1, 2);
-    assert_eq!(t4[1], 4);
+  fn make_random_sequence(generator: &mut StdRng, n: usize) -> Vec<u32> {
+    (0..n).map(|_| generator.next_u32()).collect::<Vec<u32>>()
   }
 
   #[test]
@@ -294,7 +292,7 @@ mod tests {
   }
 
   #[test]
-  fn test_ninthers() {
+  fn test_ninthers_median_1k() {
     let mut generator = StdRng::from_seed(&[ 1337 ]);
 
     for _ in 0..5000 {
@@ -303,6 +301,54 @@ mod tests {
       let answer = r[512];
       r.sort_by(|a, b| a.partial_cmp(b).unwrap());
       assert_eq!(r[512], answer);
+    }
+  }
+
+  #[test]
+  fn test_ninthers_median_10k() {
+    let mut generator = StdRng::from_seed(&[ 1337 ]);
+
+    for _ in 0..100 {
+      let mut r = make_random_sequence(&mut generator, 10240);
+      adaptive_quickselect(&mut r, 5120);
+      let answer = r[5120];
+      r.sort_by(|a, b| a.partial_cmp(b).unwrap());
+      assert_eq!(r[5120], answer);
+    }
+  }
+
+  #[test]
+  fn test_ninthers_extrema_10k() {
+    let mut generator = StdRng::from_seed(&[ 1337 ]);
+
+    for _ in 0..100 {
+      let mut r = make_random_sequence(&mut generator, 10240);
+      adaptive_quickselect(&mut r, 50);
+      let answer = r[50];
+      r.sort_by(|a, b| a.partial_cmp(b).unwrap());
+      assert_eq!(r[50], answer);
+    }
+
+    for _ in 0..100 {
+      let mut r = make_random_sequence(&mut generator, 10240);
+      adaptive_quickselect(&mut r, 10201);
+      let answer = r[10201];
+      r.sort_by(|a, b| a.partial_cmp(b).unwrap());
+      assert_eq!(r[10201], answer);
+    }
+  }
+
+  #[test]
+  fn test_ninthers_any_1k() {
+    let mut generator = StdRng::from_seed(&[ 1337 ]);
+
+    for _ in 0..5000 {
+      let mut r = make_random_sequence(&mut generator, 1024);
+      let k = (generator.next_u32() & 0x3ff) as usize;
+      adaptive_quickselect(&mut r, k);
+      let answer = r[k];
+      r.sort_by(|a, b| a.partial_cmp(b).unwrap());
+      assert_eq!(r[k], answer);
     }
   }
 }
